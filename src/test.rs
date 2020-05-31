@@ -92,3 +92,47 @@ fn test_hadamard() {
     assert_eq!(c, c_ndarray);
 
 }
+
+
+#[test]
+#[serial]
+fn test_transpose() {
+    //let a: Array2<f32> = array![[1.,2.,3.],[4.,5.,6.]];
+    let a = Array::random((8,10), Uniform::new(0., 1.));
+
+    let c_ndarray = a.t();
+    println!("c_ndarray:\n{:?}",c_ndarray);   
+
+    let mut ocl_pq: ocl::ProQue = build_ocl_proque("Intel".to_string());
+    let c = transpose(&mut ocl_pq, &a).expect("Couldn't transpose a");
+    assert_eq!(c, c_ndarray);
+}
+
+
+fn sigmoid_op(x: f32) -> f32 {
+    1.0 / (1.0 + (-x).exp())
+}
+
+#[test]
+#[serial]
+fn test_sigmoid() {
+    let a = Array::random((8,10), Uniform::new(0.49,0.51)); 
+
+    let c_ndarray = a.mapv(|x| sigmoid_op(x));
+
+
+    let mut ocl_pq: ocl::ProQue = build_ocl_proque("Intel".to_string());
+    let c = sigmoid(&mut ocl_pq, &a).expect("Couldn't run the sigmoid(a) operation");
+    
+    let epsilon = 1e-5;
+    let (n,m) = (a.nrows(),a.ncols());
+
+    let epsilon = 1e-3;
+    for y in 0..n {
+        for x in 0..m {
+            println!("{} - {} = {} < {}",c[[y,x]],c_ndarray[[y,x]],c[[y,x]] - c_ndarray[[y,x]],epsilon);
+            assert!((c[[y,x]] - c_ndarray[[y,x]]).abs() < epsilon)
+        }
+    }
+
+}

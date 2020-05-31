@@ -40,15 +40,15 @@ __kernel void multiply_by_scalar(
 }
 
 // SIGMOID
-float sigmoid(float z){return 1.0/(1.0+exp(-z));}
-__kernel void array_sigmoid_f32(__global float *a,
+float sigmoid_op(float z){return 1.0/(1.0+exp(-z));}
+__kernel void sigmoid(__global const float *a,
                                 __global float *b) {
     uintptr_t i = get_global_id(0);
-    b[i] = sigmoid(a[i]);
+    b[i] = sigmoid_op(a[i]);
 }
 
 
-__kernel void array_transpose_f32(__global const float *a,
+__kernel void transpose(__global const float *a,
                                    __global float *b,
                                    const ulong rows,
                                    const ulong cols) {

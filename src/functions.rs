@@ -183,3 +183,89 @@ pub fn multiply_by_scalar(ocl_pq: &mut ProQue,input: Vec<f32>, coeff: f32) -> oc
 
     Ok(vec_result)
 }
+
+pub fn transpose(ocl_pq: &mut ProQue, a: &Array2<f32>) -> ocl::Result<Array2<f32>> {
+    let now = Instant::now();
+    let (n, m): (usize, usize) = (a.nrows(), a.ncols());
+
+    ocl_pq.set_dims(Two(n,m));
+    let a_vec = &Array::from_iter(a.iter().cloned()).to_vec();
+    //println!("a_vec: {:?}", a_vec);
+    let source_buffer_a = Buffer::builder()
+        .queue(ocl_pq.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(ocl_pq.dims().clone())
+        .copy_host_slice(&a_vec)
+        .build()?;
+
+    let result_buffer: Buffer<f32> = ocl_pq.create_buffer()?;
+
+    // Create a kernel with arguments corresponding to those in the kernel.
+    // Just for fun, one argument will be 'named':
+    let mut kern = ocl_pq
+        .kernel_builder("transpose")
+        .arg(&source_buffer_a)
+        .arg(&result_buffer)
+        .arg(&n)
+        .arg(&m)
+        .build()?;
+
+    kern.set_default_global_work_size(Two(n,m)); 
+    kern.set_default_local_work_size(Two(n,m)); 
+
+    // Enqueue kernel:
+    unsafe {
+        kern.enq()?;
+    }
+
+    // Read results from the device into result_buffer's local vector:
+    let mut vec_result = vec![0.; n * m];
+    result_buffer.read(&mut vec_result).enq()?;
+
+    let result_array: Array2<f32> = Array::from_shape_vec((m, n), vec_result.clone())
+        .expect("Coudn't convert result to properly sized array");
+    println!("vec_result is: {:?} to array:\n{}",vec_result,result_array);
+
+    Ok(result_array)
+}
+
+pub fn sigmoid(ocl_pq: &mut ProQue,input: &Array2<f32>) -> ocl::Result<Array2<f32>> {
+
+    let (n, m): (usize, usize) = (input.nrows(), input.ncols());
+    let WORK_SIZE: usize = n*m;
+    println!("The WORK_SIZE is {}", WORK_SIZE);
+    ocl_pq.set_dims(One(input.len()));
+
+    let a_vec = &Array::from_iter(input.iter().cloned()).to_vec();
+    let source_buffer = Buffer::builder()
+        .queue(ocl_pq.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(WORK_SIZE)
+        .copy_host_slice(&a_vec)
+        .build()?;
+
+    let mut vec_result = vec![0.0f32; WORK_SIZE];
+    let result_buffer: Buffer<f32> = ocl_pq.create_buffer()?;
+
+    // Create a kernel with arguments corresponding to those in the kernel.
+    // Just for fun, one argument will be 'named':
+    let mut kern = ocl_pq
+        .kernel_builder("sigmoid")
+        .arg(&source_buffer)
+        .arg(&result_buffer)
+        .build()?;
+
+    kern.set_default_global_work_size(One(n*m));
+
+    // Enqueue kernel:
+    unsafe {
+        kern.enq()?;
+    }
+
+    result_buffer.read(&mut vec_result).enq()?;
+    let result_array: Array2<f32> = Array::from_shape_vec((n,m), vec_result.clone())
+        .expect("Coudn't convert result to properly sized array");
+    println!("vec_result is: {:?} to array:\n{}",vec_result,result_array);
+
+    Ok(result_array)
+}

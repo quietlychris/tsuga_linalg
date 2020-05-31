@@ -15,8 +15,6 @@ You can find the full list of supported functions in `src/functions.rs`. The pre
 - Scalar multiplication
 - Sigmoid operation
 
-although not all of these are currrently implemented.
-
 **Where can I learn more?**
 
 This library is a combination of a couple different previous open-source projects, including:
