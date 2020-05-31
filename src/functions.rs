@@ -83,14 +83,11 @@ pub fn matmul(ocl_pq: &mut ProQue, a: &Array2<f32>, b: &Array2<f32>) -> ocl::Res
     Ok(result_array)
 }
 
-
-// Our arbitrary data set size (about a million) and coefficent:
-const WORK_SIZE: usize = 1 << 20;
-
-pub fn multiply_by_scalar(input: Vec<f32>, coeff: f32) -> ocl::Result<()> {
-    // Create a big ball of OpenCL-ness (see ProQue and ProQueBuilder docs for info):
+// const WORK_SIZE: usize = 1 << 20;
+pub fn multiply_by_scalar(ocl_pq: &mut ProQue,input: Vec<f32>, coeff: f32) -> ocl::Result<Vec<f32>> {
 
     let src = include_str!("cl/multiply_by_scalar.cl");
+    let WORK_SIZE: usize = input.len();
     println!("The WORK_SIZE is {}", WORK_SIZE);
     let ocl_pq = ProQue::builder()
         .src(src)
@@ -98,15 +95,11 @@ pub fn multiply_by_scalar(input: Vec<f32>, coeff: f32) -> ocl::Result<()> {
         .build()
         .expect("Build ProQue");
 
-    // Create a temporary init vector and the source buffer. Initialize them
-    // with random floats between 0.0 and 20.0:
-    // let vec_source = ocl_extras::scrambled_vec((0.0, 2.0), ocl_pq.dims().to_len());
-    let mut vec_source = vec![1.2; ocl_pq.dims().to_len()];
     let source_buffer = Buffer::builder()
         .queue(ocl_pq.queue().clone())
         .flags(MemFlags::new().read_write())
         .len(WORK_SIZE)
-        .copy_host_slice(&vec_source)
+        .copy_host_slice(&input)
         .build()?;
 
     let mut vec_result = vec![0.0f32; WORK_SIZE];
@@ -114,12 +107,14 @@ pub fn multiply_by_scalar(input: Vec<f32>, coeff: f32) -> ocl::Result<()> {
 
     // Create a kernel with arguments corresponding to those in the kernel.
     // Just for fun, one argument will be 'named':
-    let kern = ocl_pq
+    let mut kern = ocl_pq
         .kernel_builder("multiply_by_scalar")
         .arg(coeff)
         .arg(None::<&Buffer<f32>>)
         .arg_named("result", None::<&Buffer<f32>>)
         .build()?;
+
+    kern.set_default_local_work_size(One(input.len())); // This one alone works for MNIST-size sets
 
     kern.set_arg(0, &coeff)?;
     kern.set_arg(1, Some(&source_buffer))?;
@@ -135,23 +130,7 @@ pub fn multiply_by_scalar(input: Vec<f32>, coeff: f32) -> ocl::Result<()> {
         kern.enq()?;
     }
 
-    // Read results from the device into result_buffer's local vector:
     result_buffer.read(&mut vec_result).enq()?;
 
-    // Check results and print the first 20:
-
-    /*for idx in 0..WORK_SIZE {
-        if idx < input.len() {
-            println!(
-                "source[{idx}]: {:.03}, \t coeff: {}, \tresult[{idx}]: {}",
-                vec_source[idx],
-                coeff,
-                vec_result[idx],
-                idx = idx
-            );
-        }
-        assert_eq!(vec_source[idx] * coeff, vec_result[idx]);
-    }*/
-
-    Ok(())
+    Ok(vec_result)
 }
