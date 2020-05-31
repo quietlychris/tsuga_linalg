@@ -6,7 +6,7 @@ struct Context {
 }
 
 pub fn build_ocl_proque(gpu_type: String) -> ProQue {
-    let src = include_str!("cl/matmul_f32.cl");
+    let src = include_str!("cl/functions.cl");
 
     let mut dev = None;
     let platforms = Platform::list();

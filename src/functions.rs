@@ -83,17 +83,71 @@ pub fn matmul(ocl_pq: &mut ProQue, a: &Array2<f32>, b: &Array2<f32>) -> ocl::Res
     Ok(result_array)
 }
 
+pub fn hadamard(ocl_pq: &mut ProQue, a: &Array2<f32>, b: &Array2<f32>) -> ocl::Result<Array2<f32>> {
+    let now = Instant::now();
+    let (n, m): (usize, usize) = (a.nrows(), a.ncols());
+
+    assert_eq!(&a.dim(),&b.dim());
+
+    ocl_pq.set_dims(One(n*m));
+    let a_vec = &Array::from_iter(a.iter().cloned()).to_vec();
+    //println!("a_vec: {:?}", a_vec);
+    let source_buffer_a = Buffer::builder()
+        .queue(ocl_pq.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(ocl_pq.dims().clone())
+        .copy_host_slice(&a_vec)
+        .build()?;
+    let built_a = now.elapsed().as_millis();
+    println!("a_buffer has been built at: {}",built_a);
+
+    let b_vec = &Array::from_iter(b.iter().cloned()).to_vec();
+    //println!("b_vec: {:?}", b_vec);
+    let source_buffer_b = Buffer::builder()
+        .queue(ocl_pq.queue().clone())
+        .flags(MemFlags::new().read_write())
+        .len(ocl_pq.dims().clone())
+        .copy_host_slice(&b_vec)
+        .build()?;
+    let built_b = now.elapsed().as_millis() - built_a;
+    println!("b_buffer has been built at: {}",built_b);
+
+    let result_buffer: Buffer<f32> = ocl_pq.create_buffer()?;
+
+    // Create a kernel with arguments corresponding to those in the kernel.
+    // Just for fun, one argument will be 'named':
+    let mut kern = ocl_pq
+        .kernel_builder("hadamard")
+        .arg(&source_buffer_a)
+        .arg(&source_buffer_b)
+        .arg(&result_buffer)
+        .build()?;
+
+    kern.set_default_global_work_size(One(n*m)); 
+    kern.set_default_local_work_size(One(n*m)); 
+
+    // Enqueue kernel:
+    unsafe {
+        kern.enq()?;
+    }
+
+    // Read results from the device into result_buffer's local vector:
+    let mut vec_result = vec![0.; n * m];
+    result_buffer.read(&mut vec_result).enq()?;
+
+    let result_array: Array2<f32> = Array::from_shape_vec((n, m), vec_result.clone())
+        .expect("Coudn't convert result to properly sized array");
+    println!("vec_result is: {:?} to array:\n{}",vec_result,result_array);
+
+    Ok(result_array)
+}
+
 // const WORK_SIZE: usize = 1 << 20;
 pub fn multiply_by_scalar(ocl_pq: &mut ProQue,input: Vec<f32>, coeff: f32) -> ocl::Result<Vec<f32>> {
 
-    let src = include_str!("cl/multiply_by_scalar.cl");
     let WORK_SIZE: usize = input.len();
     println!("The WORK_SIZE is {}", WORK_SIZE);
-    let ocl_pq = ProQue::builder()
-        .src(src)
-        .dims(WORK_SIZE)
-        .build()
-        .expect("Build ProQue");
+    ocl_pq.set_dims(One(input.len()));
 
     let source_buffer = Buffer::builder()
         .queue(ocl_pq.queue().clone())
@@ -114,16 +168,11 @@ pub fn multiply_by_scalar(ocl_pq: &mut ProQue,input: Vec<f32>, coeff: f32) -> oc
         .arg_named("result", None::<&Buffer<f32>>)
         .build()?;
 
-    kern.set_default_local_work_size(One(input.len())); // This one alone works for MNIST-size sets
+    kern.set_default_global_work_size(One(input.len())); // This one alone works for MNIST-size sets
 
     kern.set_arg(0, &coeff)?;
     kern.set_arg(1, Some(&source_buffer))?;
     kern.set_arg(2, &result_buffer)?;
-
-    println!(
-        "Kernel global work size: {:?}",
-        kern.default_global_work_size()
-    );
 
     // Enqueue kernel:
     unsafe {
